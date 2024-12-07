@@ -79,9 +79,16 @@ def main():
             frame = get_frame(container, video_st)
             if frame is None:
                 break
-            tracker.track(frame)
-            frame = tracker.draw_arrows(frame)
+            x1,y1,radius = tracker.track(frame)
+            
+            
+            
+            frame = tracker.draw_arrows(frame,radius)
             show(frame)
+            
+            
+            
+            
     except KeyboardInterrupt:
         print("Exiting...")
     finally:
@@ -130,12 +137,39 @@ class Tracker:
         self.xoffset = 0
         self.yoffset = 0
 
-    def draw_arrows(self, frame):
+    def draw_arrows(self, frame,radius):
         """Show the direction vector output in the cv2 window"""
         #cv2.putText(frame,"Color:", (0, 35), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, thickness=2)
         cv2.arrowedLine(frame, (self.midx, self.midy),
                         (self.midx + self.xoffset, self.midy - self.yoffset),
                         (0, 0, 255), 5)
+        
+         # Add text displaying the x and y offset
+        offset_text = f"X Offset: {self.xoffset}, Y Offset: {self.yoffset}"
+        cv2.putText(frame, offset_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (255, 255, 255), 2)
+        
+        
+         # Calculate the percentage of the screen the circle takes up
+        if radius > 0:  # To avoid errors when radius is zero
+            circle_area = 3.14159 * (radius ** 2)
+            frame_area = frame.shape[0] * frame.shape[1]
+            percentage = (circle_area / frame_area) * 100
+            percentage_text = f"Circle: {percentage:.2f}% of screen"
+        else:
+            percentage = 0
+            percentage_text = "Circle: Not detected"
+
+        # Add text displaying the circle percentage
+        
+        cv2.putText(frame, percentage_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7, (255, 255, 255), 2)
+        
+        if percentage >= 60:
+            cv2.putText(frame, "LAND NOW", (frame.shape[1] // 2 - 100, frame.shape[0] // 2),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 4)
+            
+        
         return frame
 
     def track(self, frame):
@@ -158,7 +192,7 @@ class Tracker:
                                 cv2.CHAIN_APPROX_SIMPLE)
         cnts = cnts[0]
         center = None
-
+        radius = 0
         # only proceed if at least one contour was found
         if len(cnts) > 0:
             # find the largest contour in the mask, then use
@@ -185,7 +219,7 @@ class Tracker:
         else:
             self.xoffset = 0
             self.yoffset = 0
-        return self.xoffset, self.yoffset
+        return self.xoffset, self.yoffset, radius
 
 if __name__ == '__main__':
     main()
