@@ -1,0 +1,8 @@
+prefix=/Users/raymond112358/catkin_ws/install
+
+Name: tello_node
+Description: Description of tello_node
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 
