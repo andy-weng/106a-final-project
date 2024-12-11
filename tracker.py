@@ -36,18 +36,46 @@ import tellopy
 import av
 import numpy
 
+class PIDController:
+    def __init__(self, kp, ki, kd, output_limits=(-1, 1)):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.output_limits = output_limits
+        self.prev_error = 0
+        self.integral = 0
+
+    def compute(self, error, dt):
+        self.integral += error * dt
+        derivative = (error - self.prev_error) / dt if dt > 0 else 0
+        output = self.kp * error + self.ki * self.integral + self.kd * derivative
+
+        # Clamp the output to within limits
+        output = max(min(output, self.output_limits[1]), self.output_limits[0])
+        self.prev_error = error
+        return output
+
+
 
 def main():
+    
+    
     # Set up tello streaming
     drone = tellopy.Tello()
     drone.log.set_level(2)
     drone.connect()
     drone.start_video()
+    
+    drone.set_alt_limit(2)
 
+    #FOR MANUAL KILL
+    #drone.land()
+    #drone.quit()
+    
     # Open the video stream from Tello
-    # @JEFF THIS IS WHERE YOU'LL NEED TO CHANGE THE FORMAT TO FEED INTO SLAM
     retry = 3
     container = None
+    
     while retry > 0:
         try:
             container = av.open(drone.get_video_stream())
@@ -65,13 +93,32 @@ def main():
     red_lower = (0, 100, 50)  # Lower bounds: Hue ~0, high saturation, low brightness
     red_upper = (10, 255, 150)  # Upper bounds: Slightly higher hue, full saturation, and medium brightness
 
+    teal_lower = (170, 100, 50)  # Lower bounds for teal
+    teal_upper = (190, 255, 150) 
 
+    orange_lower = (15, 150, 100)  # Lower bounds for orange
+    orange_upper = (35, 255, 255) 
+    #Define than video stream is not a prerecorded video
     video_st = None
 
+    
     # Initialize the tracker
     frame = get_frame(container, video_st)
     height, width = frame.shape[0], frame.shape[1]
     tracker = Tracker(height, width, red_lower, red_upper)
+
+    # Initialize the PID controller
+    pid_x = PIDController(0.5, 0.01, 0.1)
+    pid_y = PIDController(0.5, 0.01, 0.1)
+    
+    # Drone initial spin to lock onto cup
+    spinning = True
+    tracking = False
+    last_time = time.time()
+
+    drone.takeoff()
+    print("TAKING OFF")
+    
 
     try:
         # Process the video stream
@@ -79,14 +126,61 @@ def main():
             frame = get_frame(container, video_st)
             if frame is None:
                 break
-            x1,y1,radius = tracker.track(frame)
             
-            
-            
+            x_offset,y_offset,radius = tracker.track(frame)
+        
             frame = tracker.draw_arrows(frame,radius)
+            frame 
             show(frame)
             
             
+            # Check if the ESC key is pressed
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27:  # ESC key
+                print("ESC pressed. Landing...")
+                drone.land()
+                break
+            
+            if spinning:
+                # Spin the drone to search for the cup
+                drone.clockwise(50)
+                
+                if radius > 10:  # Detected the cup
+                    spinning = False
+                    tracking = True
+                    drone.clockwise(0)
+                    
+            elif tracking:
+                current_time = time.time()
+                dt = current_time - last_time
+                last_time = current_time
+
+                yaw = pid_x.compute(x_offset / width, dt)  # Normalize offset to [-1, 1]
+                verticle = pid_y.compute(y_offset / height, dt)  # Normalize offset to [-1, 1]
+                
+                
+                print("DRONE YAW COMMAND:", yaw)
+                
+                print("DRONE VERTICAL COMMAND:",verticle)
+                
+            
+                if radius > 0:  # To avoid errors when radius is zero
+                    circle_area = 3.14159 * (radius ** 2)
+                    frame_area = frame.shape[0] * frame.shape[1]
+                    percentage = (circle_area / frame_area) * 100
+                else:
+                    percentage = 0
+                
+                
+                drone.set_yaw(yaw)
+                drone.set_throttle(verticle*2)
+                if percentage < 10:  # Circle occupies 60% of screen 
+                    drone.set_pitch(0.15) # Can change to be faster
+                    
+                else:  
+                    drone.land()
+                    print("Landing...")
+                    break
             
             
     except KeyboardInterrupt:
@@ -148,6 +242,8 @@ class Tracker:
         offset_text = f"X Offset: {self.xoffset}, Y Offset: {self.yoffset}"
         cv2.putText(frame, offset_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                     0.7, (255, 255, 255), 2)
+        
+        
         
         
          # Calculate the percentage of the screen the circle takes up
